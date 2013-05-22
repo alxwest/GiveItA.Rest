@@ -105,7 +105,7 @@ namespace GiveItA.Rest
 
         public void SetBasicAuth(string userName, string userPassword)
         {
-            var authData = string.Format("Basic {0}", Convert.ToBase64String(Encoding.Default.GetBytes(string.Format("{0}:{1}", userName, userPassword))));
+            var authData = string.Format("Basic {0}", Convert.ToBase64String(Encoding.UTF8.GetBytes(string.Format("{0}:{1}", userName, userPassword))));
             PutHeader("Authorization", authData);
         }
 
