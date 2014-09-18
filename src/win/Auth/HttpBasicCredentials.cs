@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
-namespace GiveItA.Rest
+namespace GiveItA.Rest.Auth
 {
-    public class HttpBasicCredentials
+    public class HttpBasicCredentials : ICredentials
     {
         public HttpBasicCredentials(string username, string password)
         {

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using GiveItA.Rest.Auth;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -7,9 +8,9 @@ using System.Text;
 
 namespace GiveItA.Rest
 {
-    public class RestClient
+    public class RestClient : IDisposable
     {
-        private HttpBasicCredentials _authenticator;
+        private BaseAuthenticator _authenticator;
         private string _baseUrl;
 
         public RestClient(string baseUrl)
@@ -17,7 +18,7 @@ namespace GiveItA.Rest
             _baseUrl = baseUrl;
         }
 
-        public HttpBasicCredentials Authenticator
+        public BaseAuthenticator Authenticator
         {
             get
             {
@@ -31,18 +32,56 @@ namespace GiveItA.Rest
 
         public RestResponse Execute(RestRequest request)
         {
-            var r = BuildRequest(request);
-            var response = r.GetResponse();
-            
-            return new RestResponse(response);
+            return new RestResponse(ExecuteRequest(request));
         }
 
-        private WebRequest BuildRequest(RestRequest restRequest)
+        public RestResponse<T> Execute<T>(RestRequest request) where T : new()
         {
-            var request = WebRequest.Create(restRequest.GetUri(_baseUrl));
+            return new RestResponse<T>(ExecuteRequest(request));
+        }
+
+        private HttpWebResponse ExecuteRequest(RestRequest request)
+        {
+            var r = BuildRequest(request);
+            HttpWebResponse response = null;
+            try
+            {
+                response = r.GetResponse() as HttpWebResponse;
+            }
+            catch (WebException ex)
+            {
+                response = ex.Response as HttpWebResponse;                
+                if (response == null)
+                    throw ex;
+            }
+            //if a 3xx code and redirect with Auth
+            if (((int)response.StatusCode & 288) == 288 && request.FollowRedirectsWithAuth)
+            {
+                string location = response.Headers["location"];
+                //If it starts with a slash presume it wants to be absolute
+                if (location.StartsWith("/"))
+                {
+                    location = string.Format("~{0}", response.Headers["location"]);
+                }
+                //Not going across domain just yet.
+                else if (location.Contains("://"))
+                {
+                    throw new WebException("Cross domain redirects are not supported");
+                }
+                request.ChangeLocation(location);
+                return ExecuteRequest(request);
+            }
+
+            return response;
+        }
+
+        private HttpWebRequest BuildRequest(RestRequest restRequest)
+        {
+            var request = HttpWebRequest.Create(restRequest.GetUri(_baseUrl)) as HttpWebRequest;
+            request.AllowAutoRedirect = restRequest.FollowRedirects &! restRequest.FollowRedirectsWithAuth;            
             if(_authenticator!=null)
             {
-                restRequest.SetBasicAuth(_authenticator.Username, _authenticator.Password);
+               _authenticator.Authenticate(restRequest); 
             }
             request.Method = restRequest.GetMethod();
             if ((restRequest.Method & Method.SAFE) == 0)
@@ -59,6 +98,11 @@ namespace GiveItA.Rest
                     request.Headers[header.Key] = header.Value;
             }
             return request;
+        }
+
+        public void Dispose()
+        {
+            //TODO close any open responses
         }
     }
 }

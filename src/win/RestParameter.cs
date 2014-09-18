@@ -42,10 +42,17 @@ namespace GiveItA.Rest
             }
         }
 
-        public string GetValueEncoded()
+        public string GetValueHtmlEncoded()
         {
             return HttpUtility.HtmlEncode(_Value);
         }
+
+        public string GetValueUrlEncoded()
+        {
+            return HttpUtility.UrlEncode(_Value);
+        }
+
+
 
         public ParamType ParamType
         {

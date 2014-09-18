@@ -11,12 +11,15 @@ namespace GiveItA.Rest
 {
     public class RestRequest
     {
-        private readonly string _uri;
+        private string _uri;
         private readonly Method _method;
         private DataFormat _dataFormat;
         private readonly Encoding _encoding;
         private readonly IList<RestParameter> _parameters;
         private readonly IList<Object> _body;
+        private bool _followRedirects = false;
+        private bool _followRedirectsWithAuth = false;
+        private bool _followRedirectsAcrossDomains = false;
 
 
         public RestRequest(string uri, Method method)
@@ -32,30 +35,79 @@ namespace GiveItA.Rest
             _encoding = encoding;
         }
 
-        public void AddParameter(string key, string value)
+        public RestRequest AddParameter(string key, string value)
         {
             _parameters.Add(new RestParameter(key, value, ParamType.Form));
+            return this;
         }
 
-        public void AddQuery(string key, string value)
+        public RestRequest AddQuery(string key, string value)
         {
             _parameters.Add(new RestParameter(key, value, ParamType.Query));
+            return this;
         }
 
-        public void AddParameter(string key, string value, ParamType paramType)
+        public RestRequest AddParameter(string key, string value, ParamType paramType)
         {
             _parameters.Add(new RestParameter(key, value, paramType));
+            return this;
         }
 
-        public void AddUrlSegment(string key, string value)
+        public RestRequest AddUrlSegment(string key, string value)
         {
             _parameters.Add(new RestParameter(key, value, ParamType.Segment));
+            return this;
         }
 
-        public void AddBody(object obj)
+        public RestRequest AddBody(object obj)
         {
            _body.Add(obj);
+           return this;
         }
+
+        internal RestRequest ChangeLocation(string uri)
+        {
+            _uri = uri;
+            return this;
+        }
+
+        public bool FollowRedirects
+        {
+            get
+            {
+                return _followRedirects;
+            }
+            set
+            {
+                _followRedirects = true;
+            }
+        }
+
+        public bool FollowRedirectsWithAuth
+        {
+            get
+            {
+                return _followRedirects && _followRedirectsWithAuth;
+            }
+            set
+            {
+                _followRedirects = true;
+                _followRedirectsWithAuth = true;
+            }
+        }
+
+        //public bool FollowRedirectsAcrossDomains
+        //{
+        //    get
+        //    {
+        //        return _followRedirects && _followRedirectsAcrossDomains;
+        //    }
+        //    set
+        //    {
+        //        _followRedirects = true;
+        //        _followRedirectsAcrossDomains = true;
+        //    }
+        //}
 
         public string ContentType
         {
@@ -79,7 +131,7 @@ namespace GiveItA.Rest
             return null;
         }
 
-        public void SetContentType(string contentType)
+        public RestRequest SetContentType(string contentType)
         {
             if (!_parameters.Any(x => x.Key == "Content-Type" && x.ParamType == ParamType.Header))
             {
@@ -89,9 +141,10 @@ namespace GiveItA.Rest
             {
                 _parameters.First(x => x.Key == "Content-Type" && x.ParamType == ParamType.Header).Value = contentType;
             }
+            return this;
         }
 
-        public void PutHeader(string key, string value)
+        public RestRequest PutHeader(string key, string value)
         {
             if (!_parameters.Any(x => x.Key == key && x.ParamType == ParamType.Header))
             {
@@ -101,14 +154,9 @@ namespace GiveItA.Rest
             {
                 _parameters.First(x => x.Key == key && x.ParamType == ParamType.Header).Value = value;
             }
+            return this;
         }
-
-        public void SetBasicAuth(string userName, string userPassword)
-        {
-            var authData = string.Format("Basic {0}", Convert.ToBase64String(Encoding.UTF8.GetBytes(string.Format("{0}:{1}", userName, userPassword))));
-            PutHeader("Authorization", authData);
-        }
-
+             
         public Uri GetUri(string baseUri)
         {
             StringBuilder query = new StringBuilder();
@@ -119,7 +167,7 @@ namespace GiveItA.Rest
                 for (int i = 0; i < p.Count; i++)
                 {
                     var param = p[i];
-                    query.AppendFormat("{2}{0}={1}", param.Key, param.GetValueEncoded(), i == 0 && query.Length == 0 ? "" : "&");
+                    query.AppendFormat("{2}{0}={1}", param.Key, param.GetValueUrlEncoded(), i == 0 && query.Length == 0 ? "" : "&");
                 }
             }
             else
@@ -128,15 +176,29 @@ namespace GiveItA.Rest
                 for (int i = 0; i < p.Count; i++)
                 {
                     var param = p[i];
-                    query.AppendFormat("{2}{0}={1}", param.Key, param.GetValueEncoded(), i == 0 && query.Length == 0 ? "" : "&");
+                    query.AppendFormat("{2}{0}={1}", param.Key, param.GetValueUrlEncoded(), i == 0 && query.Length == 0 ? "" : "&");
                 }
             }
             string u = _uri;
             foreach (var segment in _parameters.Where(x => x.ParamType == ParamType.Segment))
             {
-                u = u.Replace("{" + segment.Key + "}", segment.GetValueEncoded());
+                u = u.Replace("{" + segment.Key + "}", segment.GetValueUrlEncoded());
             }
-            UriBuilder uri = new UriBuilder(new Uri(new Uri(baseUri), u));
+            var bUri = new Uri(baseUri);
+            UriBuilder uri = null;
+            //Is it absolute or relative?
+            if (u.Contains("://"))
+            {
+                uri = new UriBuilder(u);
+            }
+            if(u.StartsWith("~"))
+            {
+                uri = new UriBuilder(bUri.Scheme, bUri.Host, bUri.Port, u.Substring(1));
+            }
+            else
+            {
+                uri = new UriBuilder(new Uri(bUri, u));
+            }
             uri.Query = query.ToString();
 
             return uri.Uri;
@@ -186,9 +248,10 @@ namespace GiveItA.Rest
             return _dataFormat;
         }
 
-        public void SetDataFormat(DataFormat dataFormat)
+        public RestRequest SetDataFormat(DataFormat dataFormat)
         {
             _dataFormat = dataFormat;
+            return this;
         }
 
         public IDictionary<string, string> GetHeaders()
@@ -237,7 +300,7 @@ namespace GiveItA.Rest
                     for (int i = 0; i < p.Count; i++)
                     {
                         var param = p[i];
-                        body.AppendFormat("{2}{0}={1}", param.Key, param.GetValueEncoded(), i == 0 && body.Length < 1 ? "" : "&");
+                        body.AppendFormat("{2}{0}={1}", param.Key, param.GetValueHtmlEncoded(), i == 0 && body.Length < 1 ? "" : "&");
                     }
                     if (p.Any())
                     {
